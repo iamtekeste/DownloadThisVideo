@@ -32,22 +32,42 @@ const get = (object, path) => {
     return lookup;
 };
 
-const finish = (cb, cache = null) => {
+const finish = (cache = null) => {
     if (cache) cache.quit();
 
     return {
         success(body) {
             console.log(`Response: ${body}`);
-            const response = {
+            return body;
+        },
+
+        successHttp(body, headers = {
+            'Access-Control-Allow-Origin': 'thisvid.space',
+            "content-type": "application/json",
+        }) {
+            console.log(`Response: ${JSON.stringify(body)}`);
+            return {
                 statusCode: 200,
-                body
+                body: JSON.stringify(body),
+                headers,
             };
-            cb(null, response);
         },
 
         fail(body) {
             console.log(`Fail response: ${body}`);
-            cb(body);
+            return body;
+        },
+
+        failHttp(body, headers = {
+            'Access-Control-Allow-Origin': 'thisvid.space',
+            "content-type": "application/json",
+        }) {
+            console.log(`Failure response: ${JSON.stringify(body)}`);
+            return {
+                statusCode: 400,
+                body: JSON.stringify(body),
+                headers,
+            };
         },
 
         render(view, data = null) {
@@ -56,35 +76,44 @@ const finish = (cb, cache = null) => {
 
             if (!data) {
                 // no need to bother compiling Handlebars template
-                const response = {
+                return {
                     statusCode: 200,
                     headers: {"content-type": "text/html; charset=utf-8"},
                     body
                 };
-                cb(null, response);
-                return;
             }
 
             let template = hbs.compile(body);
             body = template(data);
 
-            const response = {
+            return {
                 statusCode: 200,
                 headers: {"content-type": "text/html"},
                 body
             };
-            cb(null, response);
+        },
+
+        sendTextFile(filename, headers = {"content-type": "text/html; charset=utf-8"}) {
+            const filePath = path.resolve(__dirname, '..', 'assets', filename);
+            let body = fs.readFileSync(filePath, "utf8");
+
+            return {
+                statusCode: 200,
+                headers,
+                body,
+            };
         }
     }
 };
 
 const randomSuccessResponse = (username) => {
     let responses = [
-        `Yay, video! Your download link's at {link}. You can bookmark this link and check it whenever you make a new download request. Got questions? See ${process.env.EXTERNAL_URL}/faq. 🤗`,
-        `Hey, hey, here's your download link: {link}. I may not always reply to you, so check that link whenever you make a new download request. Check out ${process.env.EXTERNAL_URL}/faq if you've got any questions.🤗`,
-        `All done, boss! Your download link: {link}. Psst...your new downloads will always be there, even when I don't reply. See ${process.env.EXTERNAL_URL}/faq if you've got any questions.👍`,
+        `Yay, video! Your download link's at {link}. You can bookmark this link and check it whenever you make a new download request. Got questions? See ${process.env.EXTERNAL_URL}/p/faq. 🤗`,
+        `Hey, hey, here's your download link: {link}. I may not always reply to you, so check that link whenever you make a new download request. Check out ${process.env.EXTERNAL_URL}/p/faq if you've got any questions.🤗`,
+        `All done, boss! Your download link: {link}. Psst...your new downloads will always be there, even when I don't reply. See ${process.env.EXTERNAL_URL}/p/faq if you've got any questions.👍`,
         `You're all set! Your new video's at {link}. PS: you can bookmark that link and check it in future whenever you mention me. See you around.🤗`,
-        `I've got you, boss. Your download's at {link}. #ForTheDownload ✊`,
+        `I've got you, boss. Your download's at {link}.\n\nPsst...you're awesome!🤗`,
+        `All good, my friend! One new download for you at {link}. Enjoy your day!😁`,
     ];
     let response = responses.random();
     return response.replace('{link}', `http://${process.env.EXTERNAL_URL}/${username}`);
@@ -117,20 +146,12 @@ const getRelativeTime = (time) => {
 const getSponsoredLink = () => {
     const links = [
         {
-            text: "Your idea. Your brand. Your space. Get a .SPACE domain now for 3 years at $15 with the code GETMYSPACE.",
+            text: "Get a .SPACE domain name for just $1. Use the code GETMYSPACE on www.get.space.",
             url: "http://get.space/?utm_source=ThisVid&utm_medium=Twitter&utm_campaign=Banner1"
-        },
-        {
-            text: ".SPACE domains: creative domains for creative souls. Use the code GETMYSPACE to get a 3-year domain for $15.",
-            url: "http://get.space/?utm_source=ThisVid&utm_medium=Twitter&utm_campaign=Banner2"
-        },
-        {
-            text: "Innovate. Disrupt.Repeat. Get a 3-year .SPACE domain for $15 with code GETMYSPACE.",
-            url: "http://get.space/?utm_source=ThisVid&utm_medium=Twitter&utm_campaign=Banner3"
         },
     ];
 
-    return links.random();
+    return links[0];
 };
 
 const SUCCESS = 'Success';

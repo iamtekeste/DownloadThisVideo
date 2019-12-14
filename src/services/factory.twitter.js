@@ -1,7 +1,7 @@
 "use strict";
 
 const {
-    not ,
+    not,
     and,
     pluck,
     randomSuccessResponse,
@@ -11,7 +11,7 @@ const {
     isTweetAReplyToMe,
     isTweetAReply
 } = require('./tweet_operations');
-const { handleTwitterErrors, errors } = require('twitter-error-handler');
+const {wrapTwitterErrors, errors} = require('twitter-error-handler');
 const aargh = require('aargh');
 const Twit = require('twit');
 
@@ -32,7 +32,7 @@ module.exports = (cache) => {
         }
         const endpoint = 'statuses/mentions_timeline';
         return t.get(endpoint, options)
-            .catch(e => handleTwitterErrors(endpoint, e))
+            .catch(e => wrapTwitterErrors(endpoint, e))
             .then(r => r.data)
             .then(tweets => tweets.filter(and(isTweetAReply, not(isTweetAReplyToMe))))
             .then(tweets => tweets.map(tweetObject => {
@@ -42,15 +42,21 @@ module.exports = (cache) => {
                     referencing_tweet: tweetObject.in_reply_to_status_id_str,
                     author: tweetObject.user.screen_name
                 }
-            }));
+            }))
+            .catch(e => {
+                return aargh(e)
+                    .type(errors.BadRequest)
+                    .throw();
+            });
     };
 
     const getActualTweetsReferenced = (tweets) => {
         return t.post(`statuses/lookup`, {
             id: pluck(tweets, 'referencing_tweet'),
             tweet_mode: 'extended',
-        }).then(r => r.data)
-            .catch(e => handleTwitterErrors('statuses/lookup', e));
+        })
+            .then(r => r.data)
+            .catch(e => wrapTwitterErrors('statuses/lookup', e));
     };
 
     const reply = async (tweet, content) => {
@@ -59,14 +65,14 @@ module.exports = (cache) => {
             status: `@${tweet.author} ${content}`
         };
         return t.post('statuses/update', options)
-            .catch(e => handleTwitterErrors('statuses/update', e))
+            .catch(e => wrapTwitterErrors('statuses/update', e))
             .catch(e => {
                 return aargh(e)
-                    .type(errors.RateLimited, (e) => {
+                    .type(errors.RateLimited, async (e) => {
                         // not sending any more replies for 10 minutes
                         // to avoid Twitter blocking our API access
                         console.log('Rate limit reached, backing off for 10 minutes');
-                        return cache.setAsync('no-reply', 1, 'EX', 10 * 60);
+                        await cache.setAsync('no-reply', 1, 'EX', 10 * 60);
                     })
                     .type(errors.BadRequest, console.log)
                     .throw();
@@ -99,7 +105,7 @@ module.exports = (cache) => {
         }).then(() => myTweets);
     };
 
-    const shouldDownloadVid = async ({ id }) => {
+    const shouldDownloadVid = async ({id}) => {
         return not(haveIRepliedToTweetAlready)(id, await getMyTweets());
     };
 
@@ -108,7 +114,7 @@ module.exports = (cache) => {
             id: tweetId,
             tweet_mode: 'extended',
         }).then(r => r.data)
-            .catch(e => handleTwitterErrors('statuses/show', e));
+            .catch(e => wrapTwitterErrors('statuses/show', e));
     };
 
     return {
@@ -117,7 +123,7 @@ module.exports = (cache) => {
         replyWithRedirect,
         shouldDownloadVid,
         getActualTweetsReferenced,
-        fetchTweet
+        fetchTweet,
     };
 
 };

@@ -2,6 +2,7 @@
 
 const { get, findItemWithGreatest, SUCCESS, FAIL, UNCERTAIN } = require('../utils');
 const { ExternalPublisherError, NoVideoInTweet } = require('../errors');
+const { sendNotification } = require('../services/notifications');
 
 const isTweetAReply = (tweet) => !!tweet.in_reply_to_status_id_str;
 
@@ -75,14 +76,16 @@ const handleTweetProcessingError = async (e, tweet, { cache, twitter, tweetObjec
 };
 
 const updateUserDownloads = (tweet, link, cache) => {
-    const key = `user-${tweet.author}`;
+    const today = (new Date).toISOString().substring(0, 10);
+    const username = tweet.author.toLowerCase();
+    const key = `user-${username}-${today}`;
     const entry = {
         videoUrl: link,
         tweet: tweet.referencing_tweet,
         time: tweet.time,
     };
     return cache.lpushAsync(key, [JSON.stringify(entry)])
-        .then(() => cache.expireAsync(key, 2 * 24 * 60 * 60));
+        .then(() => cache.expireAsync(key, 2 * 24 * 60 * 60)); // store user's downloads for last two days
 };
 
 const handleTweetProcessingSuccess = (tweet, link, { cache, twitter }) => {
@@ -90,7 +93,33 @@ const handleTweetProcessingSuccess = (tweet, link, { cache, twitter }) => {
         cache.setAsync(`tweet-${tweet.referencing_tweet}`, link, 'EX', 7 * 24 * 60 * 60),
         updateUserDownloads(tweet, link, cache),
         twitter.replyWithRedirect(tweet),
+        sendNotification(tweet.author.toLowerCase(), cache),
     ]).then(() => SUCCESS);
+};
+
+const getUserDownloads = async (cache, username) => {
+    let multi = cache.multi();
+
+    // We want to fetch downloads for the past 48 hrs.
+    // Rather than bother with the specifics of 48hrs,
+    // let's just fetch things in the last 3 days.
+    const today = new Date;
+    [0, 1, 2].map((v, k) => {
+        const date = new Date(today.getTime() - (k * 24 * 60 * 60 * 1000));
+        const day = date.toISOString().substring(0, 10); // Get the "date" part of the datetime
+        const key = `user-${username.toLowerCase()}-${day}`;
+        multi.lrange(key, 0, -1);
+    });
+
+    // Dunno why multi/exec doesn't work as documented when using Bluebird.promisify
+    const downloads = await new Promise((resolve, reject) => {
+        multi.exec((err, results) => {
+            if (err) return reject(err);
+            return resolve(results);
+        });
+    });
+    // Flatten that array of arrays, baby.
+    return [].concat(...downloads);
 };
 
 module.exports = {
@@ -99,5 +128,6 @@ module.exports = {
     haveIRepliedToTweetAlready,
     extractVideoLink,
     handleTweetProcessingError,
-    handleTweetProcessingSuccess
+    handleTweetProcessingSuccess,
+    getUserDownloads,
 };
